@@ -1,58 +1,69 @@
 import re
-from typing import Optional, List
-from dataclasses import dataclass, field
+from typing import Optional
 
-@dataclass
-class SlideContent:
-    title: str
-    bullet_points: List[str] = field(default_factory=list)
-    image_path: Optional[str] = None
+from data_structures import PowerPoint
+from slide_builder import SlideBuilder
+from layout_manager import LayoutManager
+from logger import LOG  # 引入日志模块
 
-@dataclass
-class Slide:
-    layout: int
-    content: SlideContent
+# 解析输入文本，生成 PowerPoint 数据结构
+def parse_input_text(input_text: str, layout_manager: LayoutManager) -> PowerPoint:
+    """
+    解析输入的文本并转换为 PowerPoint 数据结构。自动为每张幻灯片分配适当的布局。
+    """
+    lines = input_text.split('\n')  # 按行拆分文本
+    presentation_title = ""  # PowerPoint 的主标题
+    slides = []  # 存储所有幻灯片
+    slide_builder: Optional[SlideBuilder] = None  # 当前幻灯片的构建器
 
-@dataclass
-class PowerPoint:
-    title: str
-    slides: List[Slide] = field(default_factory=list)
-
-
-def parse_input_text(input_text: str, layout_mapping: dict) -> PowerPoint:
-    lines = input_text.split('\n')
-    presentation_title = ""
-    slides = []
-    current_slide: Optional[Slide] = None
-
-    slide_title_pattern = re.compile(r'^##\s+(.*?)\s+\[(.*?)\]')
+    # 正则表达式，用于匹配幻灯片标题、要点和图片
+    slide_title_pattern = re.compile(r'^##\s+(.*)')
     bullet_pattern = re.compile(r'^-\s+(.*)')
     image_pattern = re.compile(r'!\[.*?\]\((.*?)\)')
 
     for line in lines:
-        line = line.strip()
+        line = line.strip()  # 去除空格
+
+        # 主标题 (用作 PowerPoint 的标题和文件名)
         if line.startswith('# ') and not line.startswith('##'):
             presentation_title = line[2:].strip()
+
+            # 创建第一张幻灯片，使用 "Title Only" 布局
+            first_slide_builder = SlideBuilder(layout_manager)
+            first_slide_builder.set_title(presentation_title)
+            slides.append(first_slide_builder.finalize())
+
+        # 幻灯片标题
         elif line.startswith('## '):
             match = slide_title_pattern.match(line)
             if match:
-                title, layout_name = match.groups()
-                layout_index = layout_mapping.get(layout_name.strip(), 1)
-                if current_slide:
-                    slides.append(current_slide)
-                current_slide = Slide(layout=layout_index, content=SlideContent(title=title.strip()))
-        elif line.startswith('- ') and current_slide:
+                title = match.group(1).strip()
+
+                # 如果有当前幻灯片，生成并添加到幻灯片列表中
+                if slide_builder:
+                    slides.append(slide_builder.finalize())
+
+                # 创建新的 SlideBuilder
+                slide_builder = SlideBuilder(layout_manager)
+                slide_builder.set_title(title)
+
+        # 项目符号（要点）
+        elif line.startswith('- ') and slide_builder:
             match = bullet_pattern.match(line)
             if match:
                 bullet = match.group(1).strip()
-                current_slide.content.bullet_points.append(bullet)
-        elif line.startswith('![') and current_slide:
+                slide_builder.add_bullet_point(bullet)
+
+        # 图片插入
+        elif line.startswith('![') and slide_builder:
             match = image_pattern.match(line)
             if match:
                 image_path = match.group(1).strip()
-                current_slide.content.image_path = image_path
+                slide_builder.set_image(image_path)
 
-    if current_slide:
-        slides.append(current_slide)
+    # 为最后一张幻灯片分配布局并添加到列表中
+    if slide_builder:
+        slides.append(slide_builder.finalize())
 
+    # 返回 PowerPoint 数据结构以及演示文稿标题
     return PowerPoint(title=presentation_title, slides=slides), presentation_title
